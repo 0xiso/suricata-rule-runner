@@ -21,7 +21,7 @@
     "nuxt": "2.4.3",
     "rimraf": "2.6.3",
     "uuid": "3.3.2",
-    "vuetify": "1.5.1",
+    "vuetify": "1.5.14",
     "vuetify-loader": "1.2.1"
   },
   "devDependencies": {
