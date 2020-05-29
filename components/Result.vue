@@ -26,12 +26,10 @@ export default {
   },
   computed: {
     eve() {
-      return this.result.eve.map(row => {
+      return this.result.eve.map((row) => {
         const r = {
           timestamp: row.timestamp,
-          'src->dest': `${row.src_ip}:${row.src_port} -> ${row.dest_ip}:${
-            row.dest_port
-          }`,
+          'src->dest': `${row.src_ip}:${row.src_port} -> ${row.dest_ip}:${row.dest_port}`,
           signature: row.alert.signature
         }
         if ('http' in row && 'hostname' in row.http && 'url' in row.http) {

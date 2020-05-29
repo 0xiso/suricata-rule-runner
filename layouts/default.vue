@@ -1,12 +1,12 @@
 <template>
   <v-app>
-    <v-toolbar app color="rgba(245, 245, 245, 0.8)">
-      <v-toolbar-title class="font-weight-thin">
-        Suricata Rule Runner
-      </v-toolbar-title>
-    </v-toolbar>
+    <v-app-bar app>
+      <v-icon left>mdi-flask</v-icon>
+      <v-toolbar-title>Suricata Rule Runner</v-toolbar-title>
+    </v-app-bar>
     <v-content>
-      <v-container fluid>
+      <v-container>
+        <!-- <v-container fluid="false"> -->
         <nuxt />
       </v-container>
     </v-content>

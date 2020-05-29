@@ -1,90 +1,107 @@
-const fs = require('fs')
-const childProcess = require('child_process')
+const { execFile: execFilePromise } = require('child_process')
+const fs = require('fs').promises
 const util = require('util')
+const execFile = util.promisify(execFilePromise)
 
-const asyncHandler = require('express-async-handler')
-const uuidv4 = require('uuid/v4')
-const rimraf = require('rimraf')
-const express = require('express')
-const bodyParser = require('body-parser')
-const consola = require('consola')
 const { Nuxt, Builder } = require('nuxt')
-const app = express()
+const { v4: uuidv4 } = require('uuid')
+const consola = require('consola')
+const express = require('express')
+const rimraf = require('rimraf')
 
-const readdir = util.promisify(fs.readdir)
-const exec = util.promisify(childProcess.exec)
-const mkdir = util.promisify(fs.mkdir)
-const writeFile = util.promisify(fs.writeFile)
+const app = express()
 
 // Import and Set Nuxt.js options
 const config = require('../nuxt.config.js')
-config.dev = !(process.env.NODE_ENV === 'production')
+config.dev = process.env.NODE_ENV !== 'production'
+
+async function getPcapList() {
+  return (await fs.readdir('./static/pcaps/')).filter((val) =>
+    val.endsWith('.pcap')
+  )
+}
+
+async function isValidPcapPath(path) {
+  const validlist = await getPcapList()
+  return validlist.includes(path)
+}
 
 async function start() {
-  app.use(bodyParser.json())
+  app.use(express.json())
+
+  app.get('/api/pcaplist', async (req, res) => {
+    res.json(await getPcapList())
+  })
+
+  app.post('/api/runrule', async (req, res) => {
+    if (
+      !req.body.suricataPcap ||
+      typeof req.body.suricataPcap !== 'string' ||
+      !req.body.suricataRule ||
+      typeof req.body.suricataRule !== 'string'
+    ) {
+      req.statusCode(500).json({ err: 'invalid request' })
+      return
+    }
+    const suricataPcap = req.body.suricataPcap
+    const suricataRule = req.body.suricataRule
+    consola.log(suricataRule)
+
+    if (!isValidPcapPath(suricataPcap)) {
+      req.statusCode(500).json({ err: 'invalid pcap' })
+      return
+    }
+    const uuid = uuidv4()
+    const args = [
+      '-r',
+      `./static/pcaps/${suricataPcap}`,
+      '-S',
+      `/tmp/${uuid}/custom.rule`,
+      '-l',
+      `/tmp/${uuid}`,
+      '-c',
+      './suricata.yaml'
+    ]
+    consola.log(args)
+
+    await fs.mkdir(`/tmp/${uuid}`)
+    res.on('finish', () =>
+      rimraf(`/tmp/${uuid}`, () => {
+        consola.log(`/tmp/${uuid} removed`)
+      })
+    )
+    await fs.writeFile(`/tmp/${uuid}/custom.rule`, suricataRule)
+    let stdout, stderr
+    try {
+      ;({ stdout, stderr } = await execFile('/usr/bin/suricata', args, {
+        timeout: 10 * 1000
+      }))
+    } catch (error) {
+      consola.error(error)
+      res.status(500).json({})
+      return
+    }
+    consola.log(stdout)
+    consola.log(stderr)
+
+    if (stderr) {
+      res.status(500).json({ err: stderr })
+    } else {
+      res.sendFile(`/tmp/${uuid}/eve.json`)
+    }
+  })
 
   // Init Nuxt.js
   const nuxt = new Nuxt(config)
 
-  const {
-    host = process.env.HOST || '127.0.0.1',
-    port = process.env.PORT || 3000
-  } = nuxt.options.server
+  const { host, port } = nuxt.options.server
 
+  await nuxt.ready()
   // Build only in dev mode
   if (config.dev) {
     const builder = new Builder(nuxt)
     await builder.build()
   }
-
-  app.get(
-    '/api/pcaplist',
-    asyncHandler(async (req, res, next) => {
-      const ls = await readdir('./static/pcap', { withFileTypes: true })
-      const pcaplist = []
-      for (const ent of ls) {
-        if (!ent.isFile) continue
-        if (ent.name[0] === '.') continue
-        if (!ent.name.endsWith('.pcap')) continue
-        pcaplist.push(ent.name)
-      }
-      res.json(pcaplist)
-    })
-  )
-
-  app.post(
-    '/api/runrule',
-    asyncHandler(async (req, res, next) => {
-      const pcapFileName = req.body.pcapfilename
-      const pcaplist = await readdir('./static/pcap')
-      if (pcaplist.indexOf(pcapFileName) === -1) {
-        res.status(500).json({ err: 'Invalid pcap file name' })
-        return
-      }
-      const ruleContent = req.body.rule
-      if (!ruleContent) {
-        res.status(500).json({ err: "'rule' parameter missing" })
-        return
-      }
-
-      const uuid = uuidv4()
-      const command = `suricata -r ./static/pcap/${pcapFileName} -S /tmp/${uuid}/custom.rule -l /tmp/${uuid} -c ./suricata.yaml`
-
-      await mkdir(`/tmp/${uuid}`)
-      res.on('finish', () => rimraf(`/tmp/${uuid}`, () => {}))
-      await writeFile(`/tmp/${uuid}/custom.rule`, ruleContent)
-      const { stdout, stderr } = await exec(command)
-      console.log('command:', command) // eslint-disable-line no-console
-      console.log('stdout:', stdout) // eslint-disable-line no-console
-      console.log('stderr:', stderr) // eslint-disable-line no-console
-      console.log('ruleContent:', ruleContent) // eslint-disable-line no-console
-      if (stderr) {
-        res.status(500).json({ err: stderr })
-      } else {
-        res.sendFile(`/tmp/${uuid}/eve.json`)
-      }
-    })
-  )
 
   // Give nuxt middleware to express
   app.use(nuxt.render)
