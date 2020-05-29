@@ -1,47 +1,38 @@
 <template>
-  <v-layout row wrap>
-    <v-flex xs12 sm9 justify-end>
+  <v-row>
+    <v-col cols="9">
       <h2>Rule</h2>
-      <v-textarea
-        v-model="rule"
-        class="rule-textarea"
-        dark
-        solo
-        ml-4
-      ></v-textarea>
-      <v-layout justify-end>
-        <v-btn
-          color="info"
-          large
-          :loading="loading"
-          :disabled="loading"
-          @click="runrule"
-          >Submit</v-btn
-        >
-      </v-layout>
-    </v-flex>
-    <v-flex xs12 sm3>
-      <h2>Config</h2>
-      <v-radio-group v-model="pcapfilename">
-        <v-radio v-for="pcap in pcaplist" :key="pcap" :value="pcap">
-          <div slot="label">
-            {{ pcap }}
-            <a class="caption" :href="'/pcap/' + pcap">Download</a>
-          </div>
-        </v-radio>
-      </v-radio-group>
-    </v-flex>
-    <v-flex xs12>
+      <v-textarea v-model="suricataRule" filled></v-textarea>
+      <v-btn block :loading="loading" @click="submit">
+        <v-icon left>mdi-cube-send</v-icon>
+        Submit
+      </v-btn>
       <h2 v-if="results.length">Result</h2>
       <v-scroll-y-transition group>
         <Result
-          v-for="result in results.slice().reverse()"
+          v-for="result in results"
           :key="result.id"
           :result="result"
         ></Result>
       </v-scroll-y-transition>
-    </v-flex>
-  </v-layout>
+    </v-col>
+    <v-col>
+      <h2>
+        Pcap file
+      </h2>
+      <p v-if="pcaplist.length === 0">
+        No pcap files found. Please reload this page to retry.
+      </p>
+      <v-radio-group v-model="suricataPcap" column>
+        <v-radio
+          v-for="pcapFilename in pcaplist"
+          :key="pcapFilename"
+          :label="pcapFilename"
+          :value="pcapFilename"
+        ></v-radio>
+      </v-radio-group>
+    </v-col>
+  </v-row>
 </template>
 
 <script>
@@ -51,62 +42,58 @@ export default {
   components: {
     Result
   },
-  data() {
+  async asyncData({ $axios, error }) {
+    const getPcaplist = async () => {
+      const resp = await $axios.get('/api/pcaplist')
+      if (resp.status !== 200 || !Array.isArray(resp.data)) {
+        return []
+      }
+      return resp.data.sort()
+    }
+
+    const pcaplist = await getPcaplist()
     return {
-      rule: `alert tcp any any -> any any (msg:"sample rule(content)"; content:"images"; sid:1;)
-alert tcp any any -> any any (msg:"sample rule(pcre)"; pcre:"/[0-9]{6}/i"; sid:2;)`,
+      loading: false,
+      pcaplist,
+      lastResultId: 1,
       results: [],
-      lastId: 1,
-      loading: false
+      suricataPcap: pcaplist[0],
+      suricataRule: `alert tcp any any -> any any (msg:"sample rule(content)"; content:"images"; sid:1;)
+alert tcp any any -> any any (msg:"sample rule(pcre)"; pcre:"/[0-9]{6}/i"; sid:2;)`
     }
   },
-  async asyncData({ $axios }) {
-    const pcaplist = await $axios.$get('/api/pcaplist')
-    const pcapfilename = pcaplist[0]
-    return { pcaplist, pcapfilename }
-  },
   methods: {
-    async runrule() {
+    async submit(event) {
       this.loading = true
       const newResult = {
-        id: this.lastId++,
-        datetime: new Date().toLocaleString(),
-        rule: this.rule
+        id: this.lastResultId++,
+        timestamp: new Date().toLocaleString(),
+        rule: this.suricataRule,
+        pcap: this.suricataPcap
       }
+
       try {
-        const eve = await this.$axios.$post('/api/runrule', {
-          pcapfilename: this.pcapfilename,
-          rule: this.rule
+        const resp = await this.$axios.$post('/api/runrule', {
+          suricataPcap: this.suricataPcap,
+          suricataRule: this.suricataRule
         })
-        if (typeof eve === 'string') {
+        if (typeof resp === 'string') {
           newResult.eve = JSON.parse(
-            '[' + eve.trim().replace(/\n/g, ', ') + ']'
+            '[' + resp.trim().replace(/\n/g, ',') + ']'
           )
         } else {
-          newResult.eve = [eve]
+          newResult.eve = [resp]
         }
       } catch (error) {
-        // eslint-disable-next-line no-console
-        console.log(error)
         try {
           newResult.err = error.response.data.err
         } catch (error) {
           newResult.err = error
         }
       }
-      this.results.push(newResult)
+      this.results.unshift(newResult)
       this.loading = false
     }
   }
 }
 </script>
-
-<style>
-.flex {
-  padding: 0 1vw 1vw 1vw;
-}
-.rule-textarea {
-  font-family: monospace, monospace;
-  font-size: 14px;
-}
-</style>
