@@ -47,7 +47,7 @@ async function start() {
     const suricataRule = req.body.suricataRule
     consola.log(suricataRule)
 
-    if (!isValidPcapPath(suricataPcap)) {
+    if (!(await isValidPcapPath(suricataPcap))) {
       req.statusCode(500).json({ err: 'invalid pcap' })
       return
     }
