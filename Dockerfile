@@ -1,4 +1,4 @@
-FROM node:alpine
+FROM node:14.3.0-alpine
 
 RUN set -ex \
     && apk add --no-cache suricata \
